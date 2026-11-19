@@ -1,0 +1,109 @@
+<!--
+  /var/ossec/etc/rules/local_ti_dns_rules.xml
+
+  Обнаружение DNS-запросов к доменам из Threat Intelligence (URLhaus, ThreatFox, Phishing Army).
+  Проверка выполняется локально по CDB-спискам, внешние сервисы при обработке событий не вызываются.
+
+  Порядок правил важен: среди правил с одним родителем срабатывает первое совпавшее, поэтому
+  точные совпадения расположены раньше совпадений по родительскому домену.
+
+  Уровни критичности:
+    14 - точное совпадение, домен есть минимум в двух источниках (ti-multi)
+    13 - точное совпадение, ThreatFox (C2 / доставка нагрузки)
+    12 - точное совпадение, URLhaus (распространение вредоносного ПО)
+    10 - точное совпадение, Phishing Army (фишинг)
+     8 - совпал только родительский домен (поддомен): НЕ подтверждённое срабатывание,
+         требует проверки аналитиком (общий хостинг, wildcard-зоны, динамический DNS)
+
+  Какие источники указали домен, видно в списке ti-domains: grep "^домен:" /var/ossec/etc/lists/ti-domains
+
+  Требуются: декодер bind_named_dns_decoders.xml, списки etc/lists/ti-* в <ruleset> ossec.conf,
+  стандартные правила группы named (12100 и его потомки) из ruleset/rules.
+  Группа named намеренно НЕ указана в <group> ниже: иначе правила этого файла сами попали бы
+  в выборку if_group правила 100200.
+-->
+
+<group name="local,dns,threat_intel,">
+
+  <!-- Базовое правило: DNS-запрос BIND успешно декодирован. Алерт не создаётся (level 0).
+
+       ВАЖНО: правило привязано не к 12100, а ко всей группе named (if_group). Дочерние правила
+       перебираются по порядку загрузки, и первое совпавшее останавливает перебор. Стандартные
+       правила набора (например 12138 "Domain A record found.") загружаются раньше пользовательских,
+       поэтому правило, являющееся только потомком 12100, до проверки не доходит. Привязка к группе
+       делает 100200 потомком и 12100, и каждого стандартного правила named, на котором цепочка
+       могла остановиться. -->
+  <rule id="100200" level="0">
+    <if_group>named</if_group>
+    <field name="query" type="pcre2">.+</field>
+    <description>BIND named: DNS-запрос декодирован, выполняется проверка по спискам Threat Intelligence.</description>
+    <group>dns_query,</group>
+  </rule>
+
+  <!-- ===== Точные совпадения (поле query целиком есть в списке) ===== -->
+
+  <rule id="100201" level="14">
+    <if_sid>100200</if_sid>
+    <list field="query" lookup="match_key">etc/lists/ti-multi</list>
+    <description>TI [несколько источников]: DNS-запрос к вредоносному домену $(query) от клиента $(srcip), тип $(query_type), DNS-сервер $(dns_server). Домен найден минимум в двух источниках (подробности в списке ti-domains).</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>ti_dns,ti_exact_match,ti_multi_source,</group>
+  </rule>
+
+  <rule id="100202" level="13">
+    <if_sid>100200</if_sid>
+    <list field="query" lookup="match_key">etc/lists/ti-threatfox</list>
+    <description>TI [ThreatFox]: DNS-запрос к C2/вредоносному домену $(query) от клиента $(srcip), тип $(query_type), DNS-сервер $(dns_server).</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>ti_dns,ti_exact_match,ti_threatfox,</group>
+  </rule>
+
+  <rule id="100203" level="12">
+    <if_sid>100200</if_sid>
+    <list field="query" lookup="match_key">etc/lists/ti-urlhaus</list>
+    <description>TI [URLhaus]: DNS-запрос к домену распространения вредоносного ПО $(query) от клиента $(srcip), тип $(query_type), DNS-сервер $(dns_server).</description>
+    <mitre>
+      <id>T1105</id>
+    </mitre>
+    <group>ti_dns,ti_exact_match,ti_urlhaus,</group>
+  </rule>
+
+  <rule id="100204" level="10">
+    <if_sid>100200</if_sid>
+    <list field="query" lookup="match_key">etc/lists/ti-phishingarmy</list>
+    <description>TI [PhishingArmy]: DNS-запрос к фишинговому домену $(query) от клиента $(srcip), тип $(query_type), DNS-сервер $(dns_server).</description>
+    <mitre>
+      <id>T1566</id>
+    </mitre>
+    <group>ti_dns,ti_exact_match,ti_phishingarmy,</group>
+  </rule>
+
+  <!-- ===== Совпадения по родительскому домену (поддомены) =====
+       Срабатывают, только если точного совпадения не было. Критичность снижена: поддомен
+       домена из TI не является подтверждённым IOC без дополнительной проверки. -->
+
+  <rule id="100210" level="8">
+    <if_sid>100200</if_sid>
+    <list field="query_d2" lookup="match_key">etc/lists/ti-domains</list>
+    <description>TI [поддомен, требует проверки]: запрос $(query) от клиента $(srcip), тип $(query_type). Родительский домен $(query_d2) присутствует в списках Threat Intelligence.</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>ti_dns,ti_subdomain_match,ti_needs_verification,</group>
+  </rule>
+
+  <rule id="100211" level="8">
+    <if_sid>100200</if_sid>
+    <list field="query_d3" lookup="match_key">etc/lists/ti-domains</list>
+    <description>TI [поддомен, требует проверки]: запрос $(query) от клиента $(srcip), тип $(query_type). Родительский домен $(query_d3) присутствует в списках Threat Intelligence.</description>
+    <mitre>
+      <id>T1071.004</id>
+    </mitre>
+    <group>ti_dns,ti_subdomain_match,ti_needs_verification,</group>
+  </rule>
+
+</group>

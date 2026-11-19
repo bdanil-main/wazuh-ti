@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily update of Wazuh Threat Intelligence CDB lists
+
+[Timer]
+# Раз в сутки ночью; случайная задержка до 15 минут снимает пиковую нагрузку на источники
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=15min
+# Если сервер был выключен в момент запуска, обновление выполнится после включения
+Persistent=true
+Unit=wazuh-ti-updater.service
+
+[Install]
+WantedBy=timers.target

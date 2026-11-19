@@ -1,0 +1,11 @@
+# ~/.config/systemd/user/wazuh-ti-updater.service
+# Пользовательский юнит хоста (rootless Podman). Обновление выполняется ВНУТРИ контейнера Wazuh Manager:
+# systemd внутри контейнера не используется. Имя контейнера смотрите командой: podman ps
+[Unit]
+Description=Wazuh Threat Intelligence CDB updater (URLhaus, ThreatFox, Phishing Army) в контейнере Manager
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/podman exec single-node_wazuh.manager_1 /var/ossec/wodles/wazuh-ti/run-updater.sh
+Nice=10
+TimeoutStartSec=30min

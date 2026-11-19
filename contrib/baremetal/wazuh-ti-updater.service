@@ -1,0 +1,17 @@
+[Unit]
+Description=Wazuh Threat Intelligence CDB updater (URLhaus, ThreatFox, Phishing Army)
+Documentation=file:///usr/share/doc/wazuh-ti/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/sbin/wazuh-ti-updater.py --config /etc/wazuh-ti/config.ini
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full

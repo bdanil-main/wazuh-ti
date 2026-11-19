@@ -1,0 +1,7 @@
+# Строка для crontab пользователя, под которым работает rootless Podman (формат user crontab, без колонки пользователя).
+# Альтернатива systemd timer: используйте ОДИН из двух вариантов, не оба сразу.
+# XDG_RUNTIME_DIR нужен rootless Podman, в cron он не задан. Журнал обновления пишется внутри контейнера:
+# /var/ossec/logs/wazuh-ti-updater.log
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+20 3 * * * XDG_RUNTIME_DIR=/run/user/$(id -u) /usr/bin/podman exec single-node_wazuh.manager_1 /var/ossec/wodles/wazuh-ti/run-updater.sh >/dev/null 2>&1

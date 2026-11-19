@@ -1,0 +1,103 @@
+<!--
+  Фрагменты ossec.conf для проекта Wazuh TI DNS (Wazuh 4.14.10).
+
+  ВАЖНО: ossec.conf целиком этим файлом НЕ заменяется. Фрагменты показывают, что именно должно
+  быть в существующей конфигурации. Строки раздела 1 добавляет в рабочий ossec.conf скрипт
+  tools/patch_ossec_conf.py (команда apply): он вставляет только недостающие строки и ничего не
+  трогает вокруг них. Порядок действий и команды для Podman и Fish находятся в README.
+
+  Разделы:
+    1. Блок <ruleset> на сервере Wazuh (обязателен всегда).
+    2. Приём DNS-логов, ВАРИАНТ А: агент Wazuh на DNS-сервере читает файл через <localfile>.
+    3. Приём DNS-логов, ВАРИАНТ Б: DNS-сервер пересылает syslog прямо на Manager.
+  Из разделов 2 и 3 выберите ОДИН способ, подходящий вашей инфраструктуре. Включать оба для одного
+  и того же DNS-сервера не нужно: события будут приходить дважды.
+
+  Временный <localfile> интеграционного теста в постоянную конфигурацию НЕ входит. Он добавляется
+  и удаляется отдельными командами скрипта (см. README, раздел про интеграционный тест).
+-->
+
+
+<!--
+  1) СЕРВЕР WAZUH. Эталонная структура блока <ruleset> на проверенном Manager 4.14.10.
+  Строки стандартного набора и каталоги etc/decoders и etc/rules уже есть в штатной конфигурации
+  и повторно не добавляются. Проекту принадлежит только последняя группа строк
+  (Threat Intelligence DNS): исключение стандартного файла декодеров named и регистрация пяти
+  CDB-списков. Пути списков указываются относительно /var/ossec, без расширения.
+
+  Зачем нужно decoder_exclude: файл bind_named_dns_decoders.xml содержит копию стандартного
+  ruleset/decoders/0155-named_decoders.xml и добавляет к ней декодер named-dns-query-3plus (поля
+  query_d2 и query_d3). Без исключения стандартного файла декодер named определён дважды, а
+  стандартный named-query перехватывает события раньше и поля query_d2, query_d3 не заполняются.
+-->
+<ossec_config>
+  <ruleset>
+    <!-- Default ruleset -->
+    <decoder_dir>ruleset/decoders</decoder_dir>
+    <rule_dir>ruleset/rules</rule_dir>
+    <rule_exclude>0215-policy_rules.xml</rule_exclude>
+    <list>etc/lists/audit-keys</list>
+    <list>etc/lists/amazon/aws-eventnames</list>
+    <list>etc/lists/security-eventchannel</list>
+    <list>etc/lists/malicious-ioc/malicious-ip</list>
+    <list>etc/lists/malicious-ioc/malicious-domains</list>
+    <list>etc/lists/malicious-ioc/malware-hashes</list>
+
+    <!-- User-defined ruleset -->
+    <decoder_dir>etc/decoders</decoder_dir>
+    <rule_dir>etc/rules</rule_dir>
+
+    <!-- Threat Intelligence DNS -->
+    <decoder_exclude>0155-named_decoders.xml</decoder_exclude>
+    <list>etc/lists/ti-domains</list>
+    <list>etc/lists/ti-urlhaus</list>
+    <list>etc/lists/ti-threatfox</list>
+    <list>etc/lists/ti-phishingarmy</list>
+    <list>etc/lists/ti-multi</list>
+  </ruleset>
+</ossec_config>
+
+
+<!--
+  2) ВАРИАНТ А. Агент Wazuh на DNS-сервере (dc-02). Блок добавляется в ossec.conf АГЕНТА
+  (или в agent.conf группы агентов на сервере Wazuh). Путь должен указывать на файл, в который
+  rsyslog пишет строки формата
+
+    2026-11-09T14:05:57.757165+03:00 dc-02 named[641085]: queries: client @0x78c719d8bd88 10.16.18.117#54328 (kubernetes.default.svc.default.svc.cluster.local): query: kubernetes.default.svc.default.svc.cluster.local IN A +E(0) (10.16.18.13)
+
+  Требования к событию (декодер named-dns-query-3plus и стандартный named-query):
+    - syslog-заголовок: время, имя хоста и процесс named[PID]: (программа должна начинаться с named);
+    - категория queries: в начале сообщения (необязательная серьёзность info: допускается);
+    - client [@0x...] IP#порт (имя): [view имя: ] query: имя IN ТИП флаги (IP DNS-сервера).
+  Адрес DNS-сервера в скобках в конце строки обязателен: из него берётся поле dns_server.
+  Если named пишет лог сам, без syslog-заголовка, направьте категорию queries через syslog
+  (канал syslog в named.conf) или через rsyslog (см. README).
+-->
+<ossec_config>
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/named/queries.log</location>
+  </localfile>
+</ossec_config>
+
+
+<!--
+  3) ВАРИАНТ Б. Прямая передача syslog на Manager. Блок добавляется в ossec.conf СЕРВЕРА Wazuh.
+  rsyslog на DNS-сервере пересылает сообщения программы named на Manager по UDP.
+  allowed-ips - адрес(а) DNS-сервера(ов), с которых Manager принимает syslog.
+
+  Особенности Podman: порт 514 внутри контейнера должен быть опубликован на хосте. Rootless Podman
+  по умолчанию не может занять на хосте привилегированный порт (ниже 1024), поэтому обычно
+  публикуют, например, 5514:514/udp и указывают порт 5514 в настройках rsyslog. Кроме того, при
+  некоторых сетевых режимах rootless Podman исходный адрес пакета внутри контейнера может
+  подменяться, и тогда allowed-ips не совпадёт с адресом DNS-сервера. Проверка этого сценария
+  в проекте не выполнялась (см. README, раздел «Ограничения»).
+-->
+<ossec_config>
+  <remote>
+    <connection>syslog</connection>
+    <port>514</port>
+    <protocol>udp</protocol>
+    <allowed-ips>10.16.18.13</allowed-ips>
+  </remote>
+</ossec_config>

@@ -1,0 +1,90 @@
+<!--
+  /var/ossec/etc/decoders/bind_named_dns_decoders.xml
+
+  Этот файл ЗАМЕНЯЕТ стандартный ruleset/decoders/0155-named_decoders.xml. Стандартный файл
+  исключается директивой <decoder_exclude>0155-named_decoders.xml</decoder_exclude> в блоке
+  <ruleset> файла ossec.conf, иначе декодер "named" был бы определён дважды.
+
+  Содержимое стандартного файла сохранено без изменений. Добавлен один декодер:
+  named-dns-query-3plus. Он стоит ПЕРЕД стандартным named-query, потому что Wazuh использует
+  первый подошедший дочерний декодер (стандартный named-query подходит ко всем DNS-запросам
+  и без этого перехватывал бы события раньше).
+
+  Пример события:
+    2026-11-09T14:05:57.757165+03:00 dc-02 named[641085]: queries: client @0x78c719d8bd88 10.16.18.117#54328 (kubernetes.default.svc.default.svc.cluster.local): query: kubernetes.default.svc.default.svc.cluster.local IN A +E(0) (10.16.18.13)
+
+  Поля named-dns-query-3plus (для имён из трёх и более меток):
+    srcip       - IP клиента
+    query_d2    - две последние метки имени
+    query_d3    - три последние метки имени
+    query       - запрошенное имя целиком
+    query_type  - тип запроса (A, AAAA, TXT, ...)
+    dns_server  - IP DNS-сервера, принявшего запрос
+
+  Для имён из одной или двух меток named-dns-query-3plus не подходит (нет трёх меток),
+  событие разбирает стандартный named-query: srcip, query, query_type, dns_server.
+  Для таких имён родительский домен не нужен: они сравниваются со списками целиком.
+
+  ВАЖНО: prematch декодера named-dns-query-3plus намеренно повторяет всё условие regex
+  (включая требование трёх меток). Если prematch подходит, Wazuh выбирает декодер, и при
+  неудаче regex поля не извлекаются, а следующий соседний декодер уже не пробуется.
+  Поэтому prematch не должен подходить к событиям, которые regex не разберёт.
+
+  Поля query_d2 и query_d3 нужны правилам 100210 и 100211: CDB сравнивает ключ целиком,
+  поэтому родительский домен приходится вычислять на этапе декодирования.
+-->
+
+<!--
+  -  Named decoders
+  -  Author: Daniel Cid.
+  -  Updated by Wazuh, Inc.
+  -  Copyright (C) 2015, Wazuh Inc.
+  -  Copyright (C) 2009 Trend Micro Inc.
+  -  This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2.
+-->
+
+<!--
+  - Will extract the srcip
+  - Examples:
+  - Oct 22 10:12:33 junction named[7885]: client 192.168.1.231#1142: update 'hayaletgemi.edu/IN' denied
+  - Oct 22 10:12:33 junction named[12637]: client 1.2.3.4#32769: query (cache) 'somedomain.com/MX/IN' denied
+  - Oct 22 10:12:33 junction named[31687]: /etc/blocked.slave:9892: syntax error near ';'
+  - Oct 22 10:12:33 junction named[31687]: reloading configuration failed: unexpected token
+ -->
+<decoder name="named">
+  <program_name>^named</program_name>
+</decoder>
+
+<decoder name="named-dns-query-3plus">
+  <parent>named</parent>
+  <prematch type="pcre2">queries: (?:\w+: )?client (?:@0x[0-9a-fA-F]+ )?\S+#\d+ \([^)]*\): (?:view \S+: )?query: (?=(?:\S+\.)?[^.\s]+\.[^.\s]+ IN )(?=(?:\S+\.)?[^.\s]+\.[^.\s]+\.[^.\s]+ IN )\S+ IN \S+ \S+ \(\S+\)</prematch>
+  <regex type="pcre2">client (?:@0x[0-9a-fA-F]+ )?(\S+?)#\d+ \([^)]*\): (?:view \S+: )?query: (?=(?:\S+\.)?([^.\s]+\.[^.\s]+) IN )(?=(?:\S+\.)?([^.\s]+\.[^.\s]+\.[^.\s]+) IN )(\S+) IN (\S+) \S+ \((\S+)\)</regex>
+  <order>srcip,query_d2,query_d3,query,query_type,dns_server</order>
+</decoder>
+
+<decoder name="named-query">
+  <parent>named</parent>
+  <prematch type="pcre2">: query: </prematch>
+  <regex type="pcre2">client (?:@0x[0-9a-fA-F]+ )?(\S+)#\d+ \([^)]*\): (?:view \S+: )?query: (\S+) IN (\S+) \S+ \((\S+)\)</regex>
+  <order>srcip,query,query_type,dns_server</order>
+</decoder>
+
+<decoder name="named_client">
+  <parent>named</parent>
+  <prematch>^client </prematch>
+  <regex offset="after_prematch">^(\S+)#</regex>
+  <order>srcip</order>
+</decoder>
+
+<decoder name="named-master">
+  <parent>named</parent>
+  <prematch> for master</prematch>
+  <regex>for master (\S+):(\d+) \S+ \(source (\S+)#d+\)$</regex>
+  <order>dstip,dstport,srcip</order>
+</decoder>
+
+<decoder name="named_from">
+  <parent>named</parent>
+  <regex offset="after_parent"> from [(\S+)]</regex>
+  <order>srcip</order>
+</decoder>

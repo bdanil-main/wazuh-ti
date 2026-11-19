@@ -1,0 +1,9 @@
+c2.deep-c2.test:ThreatFox
+cdn.urlhaus-malware.test:URLhaus
+multi-source.test:URLhaus,ThreatFox
+phish-army-login.test:PhishingArmy
+phish-upper.test:PhishingArmy
+phishing-only.test:PhishingArmy
+threatfox-c2.test:ThreatFox
+upper-case.test:URLhaus
+urlhaus-malware.test:URLhaus

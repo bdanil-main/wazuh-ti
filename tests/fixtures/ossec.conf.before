@@ -1,0 +1,44 @@
+<!--
+  Синтетический пример ossec.conf Wazuh Manager ДО установки проекта (для автономных тестов).
+  Это не копия рабочего файла: содержит только структуру, достаточную для проверки patch_ossec_conf.py.
+-->
+<ossec_config>
+  <global>
+    <jsonout_output>yes</jsonout_output>
+    <alerts_log>yes</alerts_log>
+  </global>
+
+  <alerts>
+    <log_alert_level>3</log_alert_level>
+  </alerts>
+
+  <ruleset>
+    <!-- Default ruleset -->
+    <decoder_dir>ruleset/decoders</decoder_dir>
+    <rule_dir>ruleset/rules</rule_dir>
+    <rule_exclude>0215-policy_rules.xml</rule_exclude>
+    <list>etc/lists/audit-keys</list>
+    <list>etc/lists/amazon/aws-eventnames</list>
+    <list>etc/lists/security-eventchannel</list>
+    <list>etc/lists/malicious-ioc/malicious-ip</list>
+    <list>etc/lists/malicious-ioc/malicious-domains</list>
+    <list>etc/lists/malicious-ioc/malware-hashes</list>
+
+    <!-- User-defined ruleset -->
+    <decoder_dir>etc/decoders</decoder_dir>
+    <rule_dir>etc/rules</rule_dir>
+  </ruleset>
+
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/ossec/logs/active-responses.log</location>
+  </localfile>
+</ossec_config>
+
+<ossec_config>
+  <localfile>
+    <log_format>command</log_format>
+    <command>df -P</command>
+    <frequency>360</frequency>
+  </localfile>
+</ossec_config>
